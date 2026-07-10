@@ -39,12 +39,14 @@ echo "=== Full deploy ==="
 
 # Find all files under hermes/modified/ and plugins/
 while IFS= read -r -d '' f; do
+    # Strip REPO_DIR prefix for relative-path matching
+    rel="${f#$REPO_DIR/}"
     while IFS= read -r target; do
         [ -n "$target" ] || continue
         mkdir -p "$(dirname "$target")"
         cp "$f" "$target"
         echo "  deployed: $target"
-    done < <(map_targets "$f")
+    done < <(map_targets "$rel")
 done < <(find "$REPO_DIR/hermes/modified" "$REPO_DIR/plugins" -type f -not -path '*/__pycache__/*' -print0)
 
 # Config
