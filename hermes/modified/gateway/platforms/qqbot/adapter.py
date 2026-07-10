@@ -216,6 +216,7 @@ class QQAdapter(BasePlatformAdapter):
     MAX_MESSAGE_LENGTH = MAX_MESSAGE_LENGTH
     _TYPING_INPUT_SECONDS = 60  # input_notify duration reported to QQ
     _TYPING_DEBOUNCE_SECONDS = 50  # refresh before it expires
+    COALESCE_DELAY: float = 10.0  # seconds; 0 = disabled; overridden by QQ_COALESCE_DELAY_SECONDS
 
     @property
     def _log_tag(self) -> str:
@@ -359,6 +360,16 @@ class QQAdapter(BasePlatformAdapter):
         self._idle_nudge_last_sent: Dict[str, float] = {}
         self._idle_nudge_consecutive: Dict[str, int] = {}
 
+        # Message coalescing: accumulate rapid successive messages
+        _coalesce_raw = os.getenv("QQ_COALESCE_DELAY_SECONDS", "").strip()
+        if _coalesce_raw:
+            try:
+                self.COALESCE_DELAY = max(0.0, float(_coalesce_raw))
+            except ValueError:
+                pass
+        self._coalesce_timers: Dict[str, asyncio.Task] = {}
+        self._coalesce_events: Dict[str, MessageEvent] = {}
+
     # ------------------------------------------------------------------
     # Properties
     # ------------------------------------------------------------------
@@ -479,6 +490,12 @@ class QQAdapter(BasePlatformAdapter):
         if self._idle_nudge_task:
             self._idle_nudge_task.cancel()
             self._idle_nudge_task = None
+
+        # Cancel coalesce timers
+        for t in self._coalesce_timers.values():
+            t.cancel()
+        self._coalesce_timers.clear()
+        self._coalesce_events.clear()
 
         await self._cleanup()
         self._release_platform_lock()
@@ -1040,7 +1057,7 @@ class QQAdapter(BasePlatformAdapter):
     # ------------------------------------------------------------------
 
     async def handle_message(self, event: MessageEvent) -> None:
-        """Cache the last message ID per chat, then delegate to base."""
+        """Cache the last message ID, then coalesce or dispatch."""
         if event.message_id and event.source.chat_id:
             self._last_msg_id[event.source.chat_id] = event.message_id
         # Track user activity for idle nudge (skip internal/synthetic events)
@@ -1049,7 +1066,59 @@ class QQAdapter(BasePlatformAdapter):
             self._last_user_activity[chat_id] = time.time()
             # Reset idle nudge consecutive counter — user replied
             self._idle_nudge_consecutive.pop(chat_id, None)
-        await super().handle_message(event)
+
+        # Slash commands bypass coalescing immediately
+        if event.is_command():
+            await self._cancel_coalesce(event.source.chat_id)
+            await super().handle_message(event)
+            return
+
+        if not chat_id:
+            await super().handle_message(event)
+            return
+
+        # Cancel existing timer and merge text into the pending event
+        if chat_id in self._coalesce_timers:
+            self._coalesce_timers[chat_id].cancel()
+            pending = self._coalesce_events.get(chat_id)
+            if pending is not None and event.text:
+                pending.text = (pending.text + "\n" + event.text).strip()
+                pending.message_id = event.message_id
+        else:
+            self._coalesce_events[chat_id] = event
+
+        # Start (or restart) the timer
+        self._coalesce_timers[chat_id] = asyncio.create_task(
+            self._coalesce_dispatch(chat_id)
+        )
+
+    # ------------------------------------------------------------------
+    # Message coalescing: accumulate rapid successive messages
+    # ------------------------------------------------------------------
+
+    async def _coalesce_dispatch(self, chat_id: str) -> None:
+        """Wait for the coalesce window, then dispatch the accumulated event."""
+        if self.COALESCE_DELAY <= 0:
+            event = self._coalesce_events.pop(chat_id, None)
+            self._coalesce_timers.pop(chat_id, None)
+            if event is not None:
+                await super().handle_message(event)
+            return
+        try:
+            await asyncio.sleep(self.COALESCE_DELAY)
+        except asyncio.CancelledError:
+            return
+        event = self._coalesce_events.pop(chat_id, None)
+        self._coalesce_timers.pop(chat_id, None)
+        if event is not None:
+            await super().handle_message(event)
+
+    async def _cancel_coalesce(self, chat_id: Optional[str]) -> None:
+        """Cancel any pending coalesce timer for a chat."""
+        if chat_id and chat_id in self._coalesce_timers:
+            self._coalesce_timers[chat_id].cancel()
+            self._coalesce_timers.pop(chat_id, None)
+            self._coalesce_events.pop(chat_id, None)
 
     # ------------------------------------------------------------------
     # Idle nudge: proactively reach out after conversation silence
