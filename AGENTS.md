@@ -47,14 +47,12 @@ ssh root@10.10.10.1 "cd ~/hq && git pull && bash scripts/deploy.sh"
 
 ### 测试部署（feature 分支用）
 
-1. 编辑 `scripts/deploy-test.sh`，在 `FILES` 数组里只填本分支改的文件
-2. 部署：`bash scripts/deploy-test.sh`
-3. 回滚：`bash scripts/deploy-test.sh --rollback`
-4. ⚠️ **PR 合并前**，把 `deploy-test.sh` 还原为 main 版本：
+`deploy-test.sh` 通过 `git diff main...HEAD` 自动检测本分支改动的文件，
+**不需要手动编辑**。映射表在脚本内维护，覆盖全部已知路径。
 
 ```bash
-git checkout main -- scripts/deploy-test.sh
-git commit -m "chore: revert deploy-test.sh to template"
+bash scripts/deploy-test.sh           # 部署本分支改动
+bash scripts/deploy-test.sh --rollback # 回滚到部署前状态
 ```
 
 ## 分支保护
