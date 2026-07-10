@@ -1,7 +1,0 @@
-{
-  "base_url": "http://10.10.10.5:9880",
-  "tts_endpoint": "/tts",
-  "text_lang": "zh",
-  "timeout": 120,
-  "emotion": "普通"
-}
