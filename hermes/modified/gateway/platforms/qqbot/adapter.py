@@ -146,6 +146,42 @@ def _coerce_list(value: Any) -> List[str]:
     return _coerce_list_impl(value)
 
 
+def _split_preserving_fences(text: str) -> list[str]:
+    """Split text on ``\\n\\n``, keeping ```fenced blocks``` intact.
+
+    Uses a simple state machine: tracks whether we're inside a fenced
+    code block (odd number of ``` markers seen).  Paragraphs inside a
+    fence are merged back together so reasoning blocks don't get torn apart.
+    """
+    raw = text.split('\n\n')
+    result: list[str] = []
+    in_fence = False
+    buf: list[str] = []
+
+    for para in raw:
+        stripped = para.strip()
+        if not stripped:
+            continue
+        fence_count = stripped.count('```')
+
+        if not in_fence:
+            if fence_count % 2 == 1:
+                in_fence = True
+                buf.append(stripped)
+            else:
+                result.append(stripped)
+        else:
+            buf.append(stripped)
+            if fence_count % 2 == 1:
+                in_fence = False
+                result.append('\n\n'.join(buf))
+                buf = []
+
+    if buf:
+        result.append('\n\n'.join(buf))
+    return result
+
+
 # ---------------------------------------------------------------------------
 # QQAdapter
 # ---------------------------------------------------------------------------
@@ -2441,13 +2477,13 @@ class QQAdapter(BasePlatformAdapter):
             content: str,
             reply_to: Optional[str] = None,
             metadata: Optional[Dict[str, Any]] = None,
+            split_paragraphs: bool = False,
     ) -> SendResult:
         """Send a text or markdown message to a QQ user or group.
 
         Applies format_message(), splits long messages via truncate_message(),
         and retries transient failures with exponential backoff.
         """
-        del metadata
 
         if not self.is_connected:
             if not await self._wait_for_reconnection():
@@ -2455,6 +2491,36 @@ class QQAdapter(BasePlatformAdapter):
 
         if not content or not content.strip():
             return SendResult(success=True)
+
+        # Auto-split multi-paragraph messages into separate short messages
+        # for natural chat-style delivery.  Skip only when metadata explicitly
+        # marks the message as non-conversational (e.g. system command output).
+        _is_system = (metadata or {}).get("non_conversational") if metadata else False
+        if split_paragraphs or not _is_system:
+            paragraphs = _split_preserving_fences(content)
+            if len(paragraphs) > 1:
+                last_result = SendResult(success=True)
+                for para in paragraphs:
+                    if not para.strip():
+                        continue
+                    char_count = len(para)
+                    if char_count <= 5:
+                        delay = 1.5
+                    elif char_count <= 10:
+                        delay = 2.5
+                    elif char_count <= 15:
+                        delay = 4.0
+                    else:
+                        delay = 5.0
+                    await asyncio.sleep(delay)
+                    formatted = self.format_message(para)
+                    para_chunks = self.truncate_message(formatted, self.MAX_MESSAGE_LENGTH)
+                    for chunk in para_chunks:
+                        last_result = await self._send_chunk(chat_id, chunk, reply_to)
+                        if not last_result.success:
+                            return last_result
+                        reply_to = None
+                return last_result
 
         formatted = self.format_message(content)
         chunks = self.truncate_message(formatted, self.MAX_MESSAGE_LENGTH)
@@ -2464,7 +2530,6 @@ class QQAdapter(BasePlatformAdapter):
             last_result = await self._send_chunk(chat_id, chunk, reply_to)
             if not last_result.success:
                 return last_result
-            # Only reply_to the first chunk
             reply_to = None
         return last_result
 
