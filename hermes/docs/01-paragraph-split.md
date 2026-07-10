@@ -100,6 +100,24 @@ if _is_command_response:
 - 命令回复（`/model`、`/status`、`/commands` 等所有命令）：`event.get_command()` 返回命令名 → 设 `non_conversational: True` → **不分割**
   - 唯一例外：`/retry` 生成的是对话内容，不设 `non_conversational`，正常分割
 
+### 8. base.py — 两条 bypass 命令路径
+
+除 `_process_message_background()` 外，还有两条命令响应会绕过 session guard 直接调用 `send()`，**这两条路径也必须设置 `non_conversational`**，否则 `/commands` 等响应仍会被拆分：
+
+- `_dispatch_active_session_command()`（`/stop`、`/new`、`/reset` 等）
+- bypass dispatch（`/approve`、`/deny`、`/status`、`/background`、`/restart` 等）
+
+```python
+_cmd_meta = _mark_notify_metadata(
+    thread_meta,
+    message_category="agent" if cmd == "retry" else None,
+)
+if cmd != "retry":
+    _cmd_meta["non_conversational"] = True
+```
+
+曾经漏掉这两条路径导致 `/commands` 被拆成三条消息（其输出含 `\n\n`，而 `/status`、`/model` 不含故未暴露）。
+
 ### 7. send_message_tool.py — `_send_via_adapter()`
 
 ```python
