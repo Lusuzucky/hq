@@ -26,11 +26,6 @@ MODIFY_PATTERNS=(
   '(^|[[:space:];|&])(vi|vim|nano|emacs|ed|pico|micro|helix)([[:space:]]|$)'
   # sed/awk in-place or with redirect
   'sed[[:space:]].*-i([[:space:]]|$)'
-  'sed[[:space:]].*([[:space:]]>|>>)'
-  'awk[[:space:]].*([[:space:]]>|>>)'
-  # echo/printf/cat redirect to file
-  '(echo|printf)[[:space:]].*([[:space:]]>|>>)'
-  'cat[[:space:]].*([[:space:]]>|>>)'
   'tee[[:space:]]'
   'dd[[:space:]].*of='
   # File operations
@@ -54,6 +49,23 @@ MODIFY_PATTERNS=(
 
 for pattern in "${MODIFY_PATTERNS[@]}"; do
   if echo "$REMOTE_CMD" | grep -qE "$pattern"; then
+    echo "BLOCKED: remote file modification via SSH is not allowed." >&2
+    echo "  Command: ssh ... $REMOTE_CMD" >&2
+    echo "  Use this workflow instead:" >&2
+    echo "    1. scp user@host:/path/file ./local-copy" >&2
+    echo "    2. Edit local-copy with tools" >&2
+    echo "    3. scp ./local-copy user@host:/path/file" >&2
+    exit 2
+  fi
+done
+
+# Redirect patterns use grep -P for (?<!-) to avoid matching SQL ->>
+REDIRECT_PATTERNS=(
+  '(echo|printf|cat)[[:space:]].*(>[[:space:]]|[0-9]>|(?<!-)>>)'
+  '(sed|awk)[[:space:]].*(>[[:space:]]|[0-9]>|(?<!-)>>)'
+)
+for pattern in "${REDIRECT_PATTERNS[@]}"; do
+  if echo "$REMOTE_CMD" | grep -qP "$pattern"; then
     echo "BLOCKED: remote file modification via SSH is not allowed." >&2
     echo "  Command: ssh ... $REMOTE_CMD" >&2
     echo "  Use this workflow instead:" >&2
