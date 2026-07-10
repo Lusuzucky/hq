@@ -111,7 +111,7 @@ git diff hermes/upstream/adapter.py hermes/modified/adapter.py
 | — | idle-nudge 空闲提醒 | — | 待开发 |
 | — | auto-continue 自动继续 | — | 待开发 |
 | — | message-coalesce 消息合并 | — | 待开发 |
-| — | media-extraction 媒体提取 | — | 待开发 |
+| 08 | media-extraction 媒体标签提取 | `adapter.py` | ✅ |
 | — | silent-skip 静默跳过 | — | 待开发 |
 | — | WOL 网络唤醒 | — | 待开发 |
 | — | 首条消息注入 | — | 待开发 |
