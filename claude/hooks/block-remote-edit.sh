@@ -3,35 +3,6 @@
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin)['tool_input']['command'])")
 
-# --- SCP handling ---
-if echo "$COMMAND" | grep -qE '^scp[[:space:]]'; then
-  ARGS=()
-  IFS=' ' read -ra TOKENS <<< "$COMMAND"
-  for tok in "${TOKENS[@]}"; do
-    if [[ "$tok" != -* ]] && [ "$tok" != "scp" ]; then
-      ARGS+=("$tok")
-    fi
-  done
-
-  REMOTE_PATTERN='[^@]+@[^:]+:|^[^@]+:'
-  REMOTE_POS=()
-  for i in "${!ARGS[@]}"; do
-    if echo "${ARGS[$i]}" | grep -qE "$REMOTE_PATTERN"; then
-      REMOTE_POS+=("$i")
-    fi
-  done
-
-  # Single remote at position 0 = pull from remote -> allow
-  if [[ "${#REMOTE_POS[@]}" -eq 1 ]] && [[ "${REMOTE_POS[0]}" -eq 0 ]]; then
-    exit 0
-  fi
-
-  echo "BLOCKED: scp push requires explicit confirmation." >&2
-  echo "  Command: $COMMAND" >&2
-  echo "  Re-run with approval if you intend to push files to remote." >&2
-  exit 2
-fi
-
 # --- SSH handling ---
 if ! echo "$COMMAND" | grep -qE '^ssh[[:space:]]'; then
   exit 0
