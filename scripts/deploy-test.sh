@@ -33,6 +33,11 @@ if [[ "${1:-}" == "--rollback" ]]; then
         if [ -f "$BACKUP_FILE" ]; then
             cp "$BACKUP_FILE" "$TARGET"
             echo "  restored: $TARGET"
+        elif [ -f "$LATEST/.new_files" ] && grep -qxF "$TARGET" "$LATEST/.new_files"; then
+            rm -f "$TARGET"
+            echo "  removed (was new): $TARGET"
+        else
+            echo "  skipped (no backup): $TARGET"
         fi
     done
     hermes gateway restart -p gf
@@ -51,9 +56,11 @@ for entry in "${FILES[@]}"; do
     SOURCE="$REPO_DIR/${entry%%|*}"
     TARGET="${entry##*|}"
 
-    # Backup existing file
     if [ -f "$TARGET" ]; then
         cp "$TARGET" "$THIS_BACKUP/$(basename "$TARGET")"
+    else
+        # Track new files so rollback can clean them up
+        echo "$TARGET" >> "$THIS_BACKUP/.new_files"
     fi
 
     cp "$SOURCE" "$TARGET"
