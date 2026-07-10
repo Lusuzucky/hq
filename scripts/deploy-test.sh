@@ -3,8 +3,7 @@
 #   bash scripts/deploy-test.sh           # deploy changed files
 #   bash scripts/deploy-test.sh --rollback # restore original state
 #
-# File list is auto-detected from git: anything modified or added under
-# hermes/modified/ or plugins/ since branching from main.
+# File list is auto-detected from git diff origin/main...HEAD
 # No manual FILES array needed.
 set -euo pipefail
 
@@ -14,8 +13,6 @@ PROFILE_DIR="/root/.hermes/profiles/gf"
 BACKUP_DIR="/tmp/hermes-deploy-backup"
 
 # ── Path mapping ───────────────────────────────────────
-# Each entry: "repo_pattern|target_path"
-# pc_utils.py is special: deployed to multiple targets
 map_targets() {
     local src="$1"
     case "$src" in
@@ -50,19 +47,16 @@ if [[ "${1:-}" == "--rollback" ]]; then
     fi
     echo "=== Rolling back ==="
 
-    for f in "$BACKUP_DIR"/*; do
-        [ -f "$f" ] || continue
-        bn=$(basename "$f")
-        [ "$bn" = ".new_files" ] || [ "$bn" = ".manifest" ] && continue
-        while IFS='|' read -r bname target; do
-            [ "$bname" = "$bn" ] || continue
-            cp "$f" "$target"
+    while IFS='|' read -r safename target; do
+        backup_file="$BACKUP_DIR/$safename"
+        if [ -f "$backup_file" ]; then
+            cp "$backup_file" "$target"
             echo "  restored: $target"
-        done < "$BACKUP_DIR/.manifest"
-    done
+        fi
+    done < "$BACKUP_DIR/.orig_files"
 
     if [ -f "$BACKUP_DIR/.new_files" ]; then
-        while IFS='|' read -r name target; do
+        while IFS='|' read -r safename target; do
             rm -f "$target"
             echo "  removed (was new): $target"
         done < "$BACKUP_DIR/.new_files"
@@ -92,7 +86,7 @@ fi
 mkdir -p "$BACKUP_DIR"
 
 echo "=== Test deploy ==="
-echo "→ Changed files (git diff main...HEAD):"
+echo "→ Changed files (git diff origin/main...HEAD):"
 for entry in "${ENTRIES[@]}"; do
     echo "    ${entry%%|*}  →  ${entry##*|}"
 done
@@ -100,17 +94,15 @@ done
 for entry in "${ENTRIES[@]}"; do
     src="$REPO_DIR/${entry%%|*}"
     target="${entry##*|}"
-    name="$(basename "$target")"
+    # Use a filesystem-safe name: replace / with _
+    safename="${target//\//_}"
 
-    # Track for rollback
-    echo "$name|$target" >> "$BACKUP_DIR/.manifest"
-
-    # Back up once — never overwrite first backup
-    if [ ! -f "$BACKUP_DIR/$name" ] && ! grep -q "^$name|$target$" "$BACKUP_DIR/.new_files" 2>/dev/null; then
+    if [ ! -f "$BACKUP_DIR/.orig_files" ] || ! grep -q "^$safename|" "$BACKUP_DIR/.orig_files" 2>/dev/null; then
         if [ -f "$target" ]; then
-            cp "$target" "$BACKUP_DIR/$name"
+            cp "$target" "$BACKUP_DIR/$safename"
+            echo "$safename|$target" >> "$BACKUP_DIR/.orig_files"
         else
-            echo "$name|$target" >> "$BACKUP_DIR/.new_files"
+            echo "$safename|$target" >> "$BACKUP_DIR/.new_files"
         fi
     fi
 
