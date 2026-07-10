@@ -146,6 +146,13 @@ def _coerce_list(value: Any) -> List[str]:
     return _coerce_list_impl(value)
 
 
+# Extension sets for media routing in send().
+# These partition MEDIA_DELIVERY_EXTS into the platform-native delivery methods.
+_IMG_EXTS = {'.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.tiff', '.svg'}
+_VID_EXTS = {'.mp4', '.mov', '.avi', '.mkv', '.webm'}
+_AUDIO_EXTS = {'.mp3', '.ogg', '.wav', '.m4a', '.aac', '.flac', '.opus'}
+
+
 def _split_preserving_fences(text: str) -> list[str]:
     """Split text on ``\\n\\n``, keeping ```fenced blocks``` intact.
 
@@ -2492,6 +2499,34 @@ class QQAdapter(BasePlatformAdapter):
         if not content or not content.strip():
             return SendResult(success=True)
 
+        # Extract MEDIA:<path> tags before formatting so inline media
+        # attached by tools (TTS, image_generate, etc.) are delivered
+        # as native attachments.  The base dispatch calls extract_media
+        # once on the final response, but send() is also invoked directly
+        # for tool call text and mid-turn messages — those must extract
+        # independently so MEDIA tags are never rendered as visible text.
+        if 'MEDIA:' in content:
+            try:
+                media_files, content = self.extract_media(content)
+                media_files = BasePlatformAdapter.filter_media_delivery_paths(media_files)
+                for media_path, is_voice in media_files:
+                    try:
+                        ext = Path(media_path).suffix.lower()
+                        if is_voice or ext in _AUDIO_EXTS:
+                            await self.send_voice(chat_id, media_path)
+                        elif ext in _IMG_EXTS:
+                            await self.send_image(chat_id, media_path)
+                        elif ext in _VID_EXTS:
+                            await self.send_video(chat_id, media_path)
+                        else:
+                            await self.send_document(chat_id, media_path)
+                    except Exception:
+                        pass
+                if not content.strip():
+                    return SendResult(success=True)
+            except Exception:
+                pass
+
         # Auto-split multi-paragraph messages into separate short messages
         # for natural chat-style delivery.  Skip only when metadata explicitly
         # marks the message as non-conversational (e.g. system command output).
@@ -2501,6 +2536,29 @@ class QQAdapter(BasePlatformAdapter):
             if len(paragraphs) > 1:
                 last_result = SendResult(success=True)
                 for para in paragraphs:
+                    if not para.strip():
+                        continue
+                    # Extract and deliver inline MEDIA per paragraph so
+                    # files land next to the text that references them.
+                    if 'MEDIA:' in para:
+                        try:
+                            media_files, para = self.extract_media(para)
+                            media_files = BasePlatformAdapter.filter_media_delivery_paths(media_files)
+                            for media_path, is_voice in media_files:
+                                try:
+                                    ext = Path(media_path).suffix.lower()
+                                    if is_voice or ext in _AUDIO_EXTS:
+                                        await self.send_voice(chat_id, media_path)
+                                    elif ext in _IMG_EXTS:
+                                        await self.send_image(chat_id, media_path)
+                                    elif ext in _VID_EXTS:
+                                        await self.send_video(chat_id, media_path)
+                                    else:
+                                        await self.send_document(chat_id, media_path)
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
                     if not para.strip():
                         continue
                     char_count = len(para)
