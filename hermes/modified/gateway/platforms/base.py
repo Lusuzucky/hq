@@ -4553,11 +4553,17 @@ class BasePlatformAdapter(ABC):
                     len(_text),
                     event.source.chat_id,
                 )
+                _cmd_meta = _mark_notify_metadata(
+                    thread_meta,
+                    message_category="agent" if cmd == "retry" else None,
+                )
+                if cmd != "retry":
+                    _cmd_meta["non_conversational"] = True
                 _r = await self._send_with_retry(
                     chat_id=event.source.chat_id,
                     content=_text,
                     reply_to=_reply_anchor_for_event(event),
-                    metadata=_mark_notify_metadata(thread_meta),
+                    metadata=_cmd_meta,
                 )
                 if _eph_ttl > 0 and _r.success and _r.message_id:
                     self._schedule_ephemeral_delete(
@@ -4660,11 +4666,17 @@ class BasePlatformAdapter(ABC):
                     response = await self._message_handler(event)
                     _text, _eph_ttl = self._unwrap_ephemeral(response)
                     if _text:
+                        _cmd_meta = _mark_notify_metadata(
+                            _thread_meta,
+                            message_category="agent" if cmd == "retry" else None,
+                        )
+                        if cmd != "retry":
+                            _cmd_meta["non_conversational"] = True
                         _r = await self._send_with_retry(
                             chat_id=event.source.chat_id,
                             content=_text,
                             reply_to=_reply_anchor_for_event(event),
-                            metadata=_mark_notify_metadata(_thread_meta),
+                            metadata=_cmd_meta,
                         )
                         if _eph_ttl > 0 and _r.success and _r.message_id:
                             self._schedule_ephemeral_delete(
