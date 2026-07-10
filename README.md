@@ -112,11 +112,9 @@ git diff hermes/upstream/adapter.py hermes/modified/adapter.py
 | — | auto-continue 自动继续 | — | 待开发 |
 | — | message-coalesce 消息合并 | — | 待开发 |
 | — | media-extraction 媒体提取 | — | 待开发 |
-| — | media-interleaving 媒体交错 | — | 待开发 |
 | — | silent-skip 静默跳过 | — | 待开发 |
 | — | WOL 网络唤醒 | — | 待开发 |
-| — | session orphan fix | — | 待开发 |
-| — | base media is voice fix | — | 待开发 |
+| — | 首条消息注入 | — | 待开发 |
 
 *Hermes update 后逐项重新登记。*
 
