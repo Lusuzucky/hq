@@ -46,3 +46,23 @@ ssh root@10.10.10.1 "cd ~/hq && git pull && bash scripts/deploy.sh"
 ## 分支保护
 
 `main` 分支受 Ruleset 保护：必须通过 PR 合并，禁止 force push，禁止删除。
+
+## Claude Code 配置
+
+`claude/` 目录包含全局配置，在新机器上部署：
+
+```bash
+# Linux / macOS
+cp claude/settings.json ~/.claude/settings.json
+cp claude/hooks/* ~/.claude/hooks/
+
+# Windows PowerShell
+Copy-Item claude/settings.json $env:USERPROFILE\.claude\settings.json
+Copy-Item claude/hooks/* $env:USERPROFILE\.claude\hooks\
+```
+
+API key 通过系统环境变量注入，不在文件中硬编码：
+
+```powershell
+[Environment]::SetEnvironmentVariable('ANTHROPIC_AUTH_TOKEN', '<your-key>', 'User')
+```

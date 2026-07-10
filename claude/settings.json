@@ -1,0 +1,50 @@
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic",
+
+    "DISABLE_TELEMETRY": "1",
+    "DO_NOT_TRACK": "1",
+    "SENTRY_DSN": "''",
+    "DISABLE_ERROR_REPORTING": "1",
+
+    "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "0",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK": "1",
+    "CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY": "1",
+
+    "OTEL_SDK_DISABLED": "true",
+    "OTEL_TRACES_EXPORTER": "none",
+    "OTEL_METRICS_EXPORTER": "none",
+    "OTEL_LOGS_EXPORTER": "none"
+  },
+  "model": "opus[1m]",
+  "enabledPlugins": {
+    "skill-creator@claude-plugins-official": true,
+    "frontend-design@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true,
+    "code-simplifier@claude-plugins-official": true
+  },
+  "skipWebFetchPreflight": true,
+  "awaySummaryEnabled": false,
+  "autoUpdatesChannel": "latest",
+  "skipDangerousModePermissionPrompt": true,
+  "verbose": true,
+  "preferredNotifChannel": "terminal_bell",
+  "autoCompactEnabled": false,
+  "skipAutoPermissionPrompt": true,
+  "tui": "fullscreen",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/block-dangerous-git.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
