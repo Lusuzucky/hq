@@ -1,14 +1,11 @@
 #!/usr/bin/env bash
-# Test deploy with auto-backup and rollback.
-#   bash scripts/deploy-test.sh           # deploy (first run creates backup)
-#   bash scripts/deploy-test.sh --rollback # restore original files
+# Test deploy — deploys only files changed by this branch, with rollback.
+#   bash scripts/deploy-test.sh           # deploy changed files
+#   bash scripts/deploy-test.sh --rollback # restore original state
 #
-# Only the *first* run creates backups — subsequent runs won't overwrite them,
-# so rollback always restores the original pre-deploy state.
-#
-# ⚠️  Edit FILES array below to list only your branch's changes.
-#     Revert this file to main's template before merging the PR:
-#       git checkout main -- scripts/deploy-test.sh
+# File list is auto-detected from git: anything modified or added under
+# hermes/modified/ or plugins/ since branching from main.
+# No manual FILES array needed.
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -16,63 +13,109 @@ HERMES_DIR="/usr/local/lib/hermes-agent"
 PROFILE_DIR="/root/.hermes/profiles/gf"
 BACKUP_DIR="/tmp/hermes-deploy-backup"
 
-# ── Edit this: add one entry per file your branch touches ──
-# Format: "source_relative_to_REPO_DIR|target_full_path"
-FILES=(
-    "hermes/modified/tools/tts_tool.py|$HERMES_DIR/tools/tts_tool.py"
-    "plugins/gptsovits/__init__.py|$PROFILE_DIR/plugins/tts/gptsovits/__init__.py"
-    "plugins/gptsovits/plugin.yaml|$PROFILE_DIR/plugins/tts/gptsovits/plugin.yaml"
-    "plugins/pc_utils.py|$PROFILE_DIR/plugins/tts/pc_utils.py"
-)
+# ── Path mapping ───────────────────────────────────────
+# Each entry: "repo_pattern|target_path"
+# pc_utils.py is special: deployed to multiple targets
+map_targets() {
+    local src="$1"
+    case "$src" in
+        hermes/modified/hermes_state.py)
+            echo "$HERMES_DIR/hermes_state.py" ;;
+        hermes/modified/tools/*)
+            echo "$HERMES_DIR/tools/$(basename "$src")" ;;
+        hermes/modified/gateway/run.py)
+            echo "$HERMES_DIR/gateway/run.py" ;;
+        hermes/modified/gateway/session.py)
+            echo "$HERMES_DIR/gateway/session.py" ;;
+        hermes/modified/gateway/platforms/base.py)
+            echo "$HERMES_DIR/gateway/platforms/base.py" ;;
+        hermes/modified/gateway/platforms/qqbot/*)
+            echo "$HERMES_DIR/gateway/platforms/qqbot/$(basename "$src")" ;;
+        plugins/gptsovits/*)
+            echo "$PROFILE_DIR/plugins/tts/gptsovits/$(basename "$src")" ;;
+        plugins/comfyui/*)
+            echo "$PROFILE_DIR/plugins/image_gen/comfyui/$(basename "$src")" ;;
+        plugins/pc_utils.py)
+            echo "$PROFILE_DIR/plugins/tts/pc_utils.py"
+            echo "$PROFILE_DIR/plugins/image_gen/pc_utils.py" ;;
+        *)  ;;  # unknown → skip
+    esac
+}
 
 # ── Rollback ───────────────────────────────────────────
 if [[ "${1:-}" == "--rollback" ]]; then
-    if [ ! -d "$BACKUP_DIR" ] || [ -z "$(ls -A "$BACKUP_DIR" 2>/dev/null)" ]; then
-        echo "No backup found in $BACKUP_DIR"
+    if [ ! -d "$BACKUP_DIR" ]; then
+        echo "No backup found."
         exit 1
     fi
     echo "=== Rolling back ==="
-    for entry in "${FILES[@]}"; do
-        TARGET="${entry##*|}"
-        BACKUP_FILE="$BACKUP_DIR/$(basename "$TARGET")"
-        if [ -f "$BACKUP_FILE" ]; then
-            cp "$BACKUP_FILE" "$TARGET"
-            echo "  restored: $TARGET"
-        elif grep -qxF "$TARGET" "$BACKUP_DIR/.new_files" 2>/dev/null; then
-            rm -f "$TARGET"
-            echo "  removed (was new): $TARGET"
-        else
-            echo "  skipped (no backup): $TARGET"
-        fi
+
+    for f in "$BACKUP_DIR"/*; do
+        [ -f "$f" ] || continue
+        local bn=$(basename "$f")
+        [ "$bn" = ".new_files" ] || [ "$bn" = ".manifest" ] && continue
+        while IFS='|' read -r bname target; do
+            [ "$bname" = "$bn" ] || continue
+            cp "$f" "$target"
+            echo "  restored: $target"
+        done < "$BACKUP_DIR/.manifest"
     done
+
+    if [ -f "$BACKUP_DIR/.new_files" ]; then
+        while IFS='|' read -r name target; do
+            rm -f "$target"
+            echo "  removed (was new): $target"
+        done < "$BACKUP_DIR/.new_files"
+    fi
+
+    rm -rf "$BACKUP_DIR"
     hermes gateway restart -p gf
     echo "=== Rollback complete ==="
     exit 0
 fi
 
 # ── Deploy ─────────────────────────────────────────────
+declare -a ENTRIES=()
+while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    while IFS= read -r target; do
+        [ -n "$target" ] || continue
+        ENTRIES+=("$f|$target")
+    done < <(map_targets "$f")
+done < <(git -C "$REPO_DIR" diff --name-only "main...HEAD" -- hermes/modified/ plugins/)
+
+if [ ${#ENTRIES[@]} -eq 0 ]; then
+    echo "No changed files detected."
+    exit 0
+fi
+
 mkdir -p "$BACKUP_DIR"
 
 echo "=== Test deploy ==="
+echo "→ Changed files (git diff main...HEAD):"
+for entry in "${ENTRIES[@]}"; do
+    echo "    ${entry%%|*}  →  ${entry##*|}"
+done
 
-for entry in "${FILES[@]}"; do
-    SOURCE="$REPO_DIR/${entry%%|*}"
-    TARGET="${entry##*|}"
-    BACKUP_FILE="$BACKUP_DIR/$(basename "$TARGET")"
+for entry in "${ENTRIES[@]}"; do
+    src="$REPO_DIR/${entry%%|*}"
+    target="${entry##*|}"
+    name="$(basename "$target")"
 
-    # Only back up the *first* time — never overwrite the original backup
-    if [ ! -f "$BACKUP_FILE" ] && ! grep -qxF "$TARGET" "$BACKUP_DIR/.new_files" 2>/dev/null; then
-        if [ -f "$TARGET" ]; then
-            cp "$TARGET" "$BACKUP_FILE"
-            echo "  backed up: $TARGET"
+    # Track for rollback
+    echo "$name|$target" >> "$BACKUP_DIR/.manifest"
+
+    # Back up once — never overwrite first backup
+    if [ ! -f "$BACKUP_DIR/$name" ] && ! grep -q "^$name|$target$" "$BACKUP_DIR/.new_files" 2>/dev/null; then
+        if [ -f "$target" ]; then
+            cp "$target" "$BACKUP_DIR/$name"
         else
-            echo "$TARGET" >> "$BACKUP_DIR/.new_files"
-            echo "  new file: $TARGET"
+            echo "$name|$target" >> "$BACKUP_DIR/.new_files"
         fi
     fi
 
-    cp "$SOURCE" "$TARGET"
-    echo "  deployed: $TARGET"
+    cp "$src" "$target"
+    echo "  deployed: $target"
 done
 
 hermes gateway restart -p gf
