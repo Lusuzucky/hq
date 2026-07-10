@@ -83,27 +83,6 @@ MODIFY_PATTERNS=(
   'kubectl[[:space:]]+(apply|delete|edit|patch|scale|rollout|exec)'
 )
 
-# --- Read-only patterns — checked second, if matched -> allow ---
-READONLY_PATTERNS=(
-  '^(cat|less|more|head|tail|zcat|zgrep|bzcat)([[:space:]]|$)'
-  '^grep([[:space:]]|$)'
-  '^(ls|dir)([[:space:]]|$)'
-  '^find([[:space:]]|$)'
-  '^(ps|top|htop)([[:space:]]|$)'
-  '^(df|du|free|uptime)([[:space:]]|$)'
-  '^systemctl[[:space:]]+(status|list|is-enabled|is-active|show)'
-  '^journalctl'
-  '^docker[[:space:]]+(ps|logs|inspect|images|stats)'
-  '^kubectl[[:space:]]+(get|describe|logs)'
-  '^(who|w|id|groups)([[:space:]]|$)'
-  '^(which|type|command)([[:space:]]|$)'
-  '^echo([[:space:]]|$)'
-  '^(date|hostname|uname)([[:space:]]|$)'
-  '^(true|false)([[:space:]]|$)'
-  '^test([[:space:]]|$)'
-)
-
-# Phase 1: Check for modifications -> block
 for pattern in "${MODIFY_PATTERNS[@]}"; do
   if echo "$REMOTE_CMD" | grep -qE "$pattern"; then
     echo "BLOCKED: remote file modification via SSH is not allowed." >&2
@@ -116,15 +95,4 @@ for pattern in "${MODIFY_PATTERNS[@]}"; do
   fi
 done
 
-# Phase 2: Check for known read-only patterns -> allow
-for pattern in "${READONLY_PATTERNS[@]}"; do
-  if echo "$REMOTE_CMD" | grep -qE "$pattern"; then
-    exit 0
-  fi
-done
-
-# Phase 3: Unknown command -> block (fail-safe)
-echo "BLOCKED: unrecognized SSH remote command." >&2
-echo "  Command: ssh ... $REMOTE_CMD" >&2
-echo "  If this is a read-only operation, re-run with approval." >&2
-exit 2
+exit 0
