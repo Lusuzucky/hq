@@ -47,8 +47,6 @@ MODIFY_PATTERNS=(
   # Package management
   '(apt|yum|dnf|pacman|zypper)[[:space:]]'
   'pip[[:space:]]*install|npm[[:space:]]*install'
-  # Service management
-  'systemctl[[:space:]]+(start|stop|restart|enable|disable|mask|daemon-reload)'
   # Container write ops
   'docker[[:space:]]+(rm|rmi|stop|start|restart|exec|run|build|compose[[:space:]]+up)'
   'kubectl[[:space:]]+(apply|delete|edit|patch|scale|rollout|exec)'
