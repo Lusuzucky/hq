@@ -52,7 +52,7 @@ if [[ "${1:-}" == "--rollback" ]]; then
 
     for f in "$BACKUP_DIR"/*; do
         [ -f "$f" ] || continue
-        local bn=$(basename "$f")
+        bn=$(basename "$f")
         [ "$bn" = ".new_files" ] || [ "$bn" = ".manifest" ] && continue
         while IFS='|' read -r bname target; do
             [ "$bname" = "$bn" ] || continue
