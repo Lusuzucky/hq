@@ -110,7 +110,7 @@ git diff hermes/upstream/adapter.py hermes/modified/adapter.py
 | 04 | 部署脚本（全量 + 测试回滚） | `scripts/deploy.sh`, `scripts/deploy-test.sh` | ✅ |
 | 04 | idle-nudge 空闲提醒 | `adapter.py` | ✅ |
 | — | auto-continue 自动继续 | — | 待开发 |
-| — | message-coalesce 消息合并 | — | 待开发 |
+| 06 | message-coalesce 消息合并 | `adapter.py` | ✅ |
 | 08 | media-extraction 媒体标签提取 | `adapter.py` | ✅ |
 | — | silent-skip 静默跳过 | — | 合并入 04 |
 | — | WOL 网络唤醒 | — | 待开发 |
