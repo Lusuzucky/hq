@@ -1,11 +1,10 @@
 #!/bin/bash
 
 INPUT=$(cat)
-COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command')
+COMMAND=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin)['tool_input']['command'])")
 
 # --- SCP handling ---
 if echo "$COMMAND" | grep -qE '^scp[[:space:]]'; then
-  # Extract non-flag arguments (skip -r, -P, -i, -o, -q, -v, -C, -p, -l etc.)
   ARGS=()
   IFS=' ' read -ra TOKENS <<< "$COMMAND"
   for tok in "${TOKENS[@]}"; do
@@ -15,8 +14,6 @@ if echo "$COMMAND" | grep -qE '^scp[[:space:]]'; then
   done
 
   REMOTE_PATTERN='[^@]+@[^:]+:|^[^@]+:'
-
-  # Find remote positions
   REMOTE_POS=()
   for i in "${!ARGS[@]}"; do
     if echo "${ARGS[$i]}" | grep -qE "$REMOTE_PATTERN"; then
@@ -24,14 +21,11 @@ if echo "$COMMAND" | grep -qE '^scp[[:space:]]'; then
     fi
   done
 
-  LAST_IDX=$((${#ARGS[@]} - 1))
-
-  # If last arg is remote → pull (allowed)
-  if [[ "${#REMOTE_POS[@]}" -eq 1 ]] && [[ "${REMOTE_POS[0]}" -eq "$LAST_IDX" ]]; then
+  # Single remote at position 0 = pull from remote -> allow
+  if [[ "${#REMOTE_POS[@]}" -eq 1 ]] && [[ "${REMOTE_POS[0]}" -eq 0 ]]; then
     exit 0
   fi
 
-  # Otherwise → push (or remote-to-remote), require confirmation
   echo "BLOCKED: scp push requires explicit confirmation." >&2
   echo "  Command: $COMMAND" >&2
   echo "  Re-run with approval if you intend to push files to remote." >&2
@@ -43,69 +37,73 @@ if ! echo "$COMMAND" | grep -qE '^ssh[[:space:]]'; then
   exit 0
 fi
 
-# Not a concern if no remote command is being run (interactive login)
-HAS_CMD=$(echo "$COMMAND" | grep -oP 'ssh\s+(?:-[^\s]+\s+)*([^\s]+@)?[^\s]+\s+(.+)' | head -1)
-if [ -z "$HAS_CMD" ]; then
+# Strip ssh [flags] [user@]host, leaving the remote command
+REMOTE_CMD=$(echo "$COMMAND" | sed -E 's/^ssh[[:space:]]+(-[^[:space:]]+[[:space:]]+)*([^[:space:]]+@)?[^[:space:]]+[[:space:]]+//')
+
+# If nothing left, it's interactive login -> allow
+if [ -z "$REMOTE_CMD" ] || [ "$REMOTE_CMD" = "$COMMAND" ]; then
   exit 0
 fi
 
-REMOTE_CMD=$(echo "$COMMAND" | sed -E 's/^ssh\s+(-[^\s]+\s+)*([^\s]+@)?[^\s]+\s+//')
+# Strip outer quotes around the remote command
+REMOTE_CMD="${REMOTE_CMD#\"}"; REMOTE_CMD="${REMOTE_CMD%\"}"
+REMOTE_CMD="${REMOTE_CMD#\'}"; REMOTE_CMD="${REMOTE_CMD%\'}"
 
-# Read-only patterns — allowed
-READONLY_PATTERNS=(
-  '^(cat|less|more|head|tail|zcat|zgrep|bzcat)\b'
-  '^grep\b(?!.*>)'
-  '^ls\b'
-  '^find\b(?!.*-exec.*rm)'
-  '^ps\b|^top\b|^htop\b'
-  '^df\b|^du\b|^free\b|^uptime\b'
-  '^systemctl\s+(status|list|is-enabled|is-active|show)\b'
-  '^journalctl\b'
-  '^docker\s+(ps|logs|inspect|images|stats)\b'
-  '^kubectl\s+(get|describe|logs)\b'
-  '^who\b|^w\b|^id\b|^groups\b'
-  '^which\b|^type\b|^command\b'
-  '^echo\b(?!.*>)'
-  '^date\b|^hostname\b|^uname\b'
-  '^true\b|^false\b'
-  '^test\b|^\[\b'
-)
-
-# Modification patterns — blocked
+# --- Modification patterns — checked first, if matched -> block ---
 MODIFY_PATTERNS=(
-  '\bsed\b(?!.*-n\b)[^>]*(-i|>|>>)'
-  '\bawk\b.*>'
-  '\becho\b.*>'
-  '\bprintf\b.*>'
-  '\btee\b'
-  '(^|\s)(vim?|nano|emacs|ed|pico|micro|helix)\s'
-  '\bdd\b.*of='
-  '\bcat\b.*>'
-  '\brm\b'
-  '\bmv\b'
-  '\bcp\b(?!.*\./)'
-  '\bchmod\b'
-  '\bchown\b'
-  '\btouch\b'
-  '\bmkdir\b'
-  '\bln\s+-'
-  '\bgit\s+(add|commit|checkout|merge|rebase|reset)'
-  '\bgit\s+branch\s+-[dD]'
-  '\bgit\s+push\b'
-  '\binstall\b'
-  '\bapt\b|\byum\b|\bdnf\b|\bpacman\b|\bzypper\b'
-  '\bpip\b.*install|\bnpm\b.*install'
-  '\bsystemctl\s+(start|stop|restart|enable|disable|mask)\b'
-  '\bdocker\s+(rm|rmi|stop|start|restart|exec|run|build|compose\s+up)'
-  '\bkubectl\s+(apply|delete|edit|patch|scale|rollout|exec)'
+  # Direct file editing
+  '(^|[[:space:];|&])(vi|vim|nano|emacs|ed|pico|micro|helix)([[:space:]]|$)'
+  # sed/awk in-place or with redirect
+  'sed[[:space:]].*-i([[:space:]]|$)'
+  'sed[[:space:]].*([[:space:]]>|>>)'
+  'awk[[:space:]].*([[:space:]]>|>>)'
+  # echo/printf/cat redirect to file
+  '(echo|printf)[[:space:]].*([[:space:]]>|>>)'
+  'cat[[:space:]].*([[:space:]]>|>>)'
+  'tee[[:space:]]'
+  'dd[[:space:]].*of='
+  # File operations
+  '(^|[[:space:];|&])rm[[:space:]]'
+  '(^|[[:space:];|&])mv[[:space:]]'
+  '(^|[[:space:];|&])cp[[:space:]]'
+  '(^|[[:space:];|&])chmod[[:space:]]'
+  '(^|[[:space:];|&])chown[[:space:]]'
+  '(^|[[:space:];|&])touch[[:space:]]'
+  '(^|[[:space:];|&])mkdir[[:space:]]'
+  'ln[[:space:]]+-[sf]'
+  # Git write operations
+  'git[[:space:]]+(add|commit|checkout|merge|rebase|reset|branch[[:space:]]+-[dD]|push)'
+  # Package management
+  '(apt|yum|dnf|pacman|zypper)[[:space:]]'
+  'pip[[:space:]]*install|npm[[:space:]]*install'
+  # Service management
+  'systemctl[[:space:]]+(start|stop|restart|enable|disable|mask|daemon-reload)'
+  # Container write ops
+  'docker[[:space:]]+(rm|rmi|stop|start|restart|exec|run|build|compose[[:space:]]+up)'
+  'kubectl[[:space:]]+(apply|delete|edit|patch|scale|rollout|exec)'
 )
 
-for pattern in "${READONLY_PATTERNS[@]}"; do
-  if echo "$REMOTE_CMD" | grep -qE "$pattern"; then
-    exit 0
-  fi
-done
+# --- Read-only patterns — checked second, if matched -> allow ---
+READONLY_PATTERNS=(
+  '^(cat|less|more|head|tail|zcat|zgrep|bzcat)([[:space:]]|$)'
+  '^grep([[:space:]]|$)'
+  '^(ls|dir)([[:space:]]|$)'
+  '^find([[:space:]]|$)'
+  '^(ps|top|htop)([[:space:]]|$)'
+  '^(df|du|free|uptime)([[:space:]]|$)'
+  '^systemctl[[:space:]]+(status|list|is-enabled|is-active|show)'
+  '^journalctl'
+  '^docker[[:space:]]+(ps|logs|inspect|images|stats)'
+  '^kubectl[[:space:]]+(get|describe|logs)'
+  '^(who|w|id|groups)([[:space:]]|$)'
+  '^(which|type|command)([[:space:]]|$)'
+  '^echo([[:space:]]|$)'
+  '^(date|hostname|uname)([[:space:]]|$)'
+  '^(true|false)([[:space:]]|$)'
+  '^test([[:space:]]|$)'
+)
 
+# Phase 1: Check for modifications -> block
 for pattern in "${MODIFY_PATTERNS[@]}"; do
   if echo "$REMOTE_CMD" | grep -qE "$pattern"; then
     echo "BLOCKED: remote file modification via SSH is not allowed." >&2
@@ -118,4 +116,15 @@ for pattern in "${MODIFY_PATTERNS[@]}"; do
   fi
 done
 
-exit 0
+# Phase 2: Check for known read-only patterns -> allow
+for pattern in "${READONLY_PATTERNS[@]}"; do
+  if echo "$REMOTE_CMD" | grep -qE "$pattern"; then
+    exit 0
+  fi
+done
+
+# Phase 3: Unknown command -> block (fail-safe)
+echo "BLOCKED: unrecognized SSH remote command." >&2
+echo "  Command: ssh ... $REMOTE_CMD" >&2
+echo "  If this is a read-only operation, re-run with approval." >&2
+exit 2
