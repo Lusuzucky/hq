@@ -108,11 +108,11 @@ git diff hermes/upstream/adapter.py hermes/modified/adapter.py
 | 01 | 段落自动分割 + 打字延迟 | `adapter.py`, `base.py`, `send_message_tool.py` | ✅ |
 | 02 | TTS 情感参数透传 | `tts_tool.py`, `gptsovits/__init__.py` | ✅ |
 | 04 | 部署脚本（全量 + 测试回滚） | `scripts/deploy.sh`, `scripts/deploy-test.sh` | ✅ |
-| — | idle-nudge 空闲提醒 | — | 待开发 |
+| 04 | idle-nudge 空闲提醒 | `adapter.py` | ✅ |
 | — | auto-continue 自动继续 | — | 待开发 |
 | — | message-coalesce 消息合并 | — | 待开发 |
 | 08 | media-extraction 媒体标签提取 | `adapter.py` | ✅ |
-| — | silent-skip 静默跳过 | — | 待开发 |
+| — | silent-skip 静默跳过 | — | 合并入 04 |
 | — | WOL 网络唤醒 | — | 待开发 |
 | — | 首条消息注入 | — | 待开发 |
 

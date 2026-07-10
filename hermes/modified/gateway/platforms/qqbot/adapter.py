@@ -39,7 +39,7 @@ import mimetypes
 import os
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
@@ -144,6 +144,20 @@ def check_qq_requirements() -> bool:
 def _coerce_list(value: Any) -> List[str]:
     """Coerce config values into a trimmed string list."""
     return _coerce_list_impl(value)
+
+
+def _env_bool(name: str) -> bool:
+    """Read a boolean from an environment variable."""
+    val = os.getenv(name, "").strip().lower()
+    return val in {"1", "true", "yes", "on"}
+
+
+def _env_int(name: str) -> int:
+    """Read an integer from an environment variable, or 0 if missing/invalid."""
+    try:
+        return int(os.getenv(name, ""))
+    except (ValueError, TypeError):
+        return 0
 
 
 # Extension sets for media routing in send().
@@ -304,6 +318,47 @@ class QQAdapter(BasePlatformAdapter):
         # register a custom handler.
         self._interaction_callback = self._default_interaction_dispatch
 
+        # Idle nudge: proactively reach out after conversation silence.
+        # Enable via env var QQ_IDLE_NUDGE_ENABLED=true.
+        self._idle_nudge_enabled = _env_bool("QQ_IDLE_NUDGE_ENABLED") or bool(
+            extra.get("idle_nudge_enabled", False)
+        )
+        self._idle_nudge_min_minutes = max(
+            1,
+            _env_int("QQ_IDLE_NUDGE_MIN_MINUTES")
+            or int(extra.get("idle_nudge_min_minutes", 0))
+            or 20,
+        )
+        self._idle_nudge_max_minutes = max(
+            self._idle_nudge_min_minutes + 1,
+            _env_int("QQ_IDLE_NUDGE_MAX_MINUTES")
+            or int(extra.get("idle_nudge_max_minutes", 0))
+            or 90,
+        )
+        self._idle_nudge_prompt = (
+            os.getenv("QQ_IDLE_NUDGE_PROMPT", "").strip()
+            or str(extra.get("idle_nudge_prompt", "")).strip()
+            or (
+                "（系统提示：请按照 qq-idle-nudge 策略主动联系用户。"
+                "选择策略中合适的方向，表达完整再停。不要解释你在执行策略，直接行动。"
+                "⚠️ 防重复：扫描对话记录，如果上次nudge用户没回复，必须换新方向，"
+                "禁止连续两次用同一方向。"
+                "如果当前时段不适合打扰用户（深夜、用户可能忙等），"
+                "只回复 __SILENT__（注意是双下划线）即可跳过本轮，不会发送任何消息给用户。）"
+            )
+        )
+        self._idle_nudge_max_consecutive = max(
+            0,
+            _env_int("QQ_IDLE_NUDGE_MAX_CONSECUTIVE")
+            or int(extra.get("idle_nudge_max_consecutive", 0))
+            or 3,
+        )
+        self._last_user_activity: Dict[str, float] = {}
+        self._idle_nudge_task: Optional[asyncio.Task] = None
+        self._idle_nudge_thresholds: Dict[str, float] = {}
+        self._idle_nudge_last_sent: Dict[str, float] = {}
+        self._idle_nudge_consecutive: Dict[str, int] = {}
+
     # ------------------------------------------------------------------
     # Properties
     # ------------------------------------------------------------------
@@ -375,6 +430,19 @@ class QQAdapter(BasePlatformAdapter):
             # 4. Start listeners
             self._listen_task = asyncio.create_task(self._listen_loop())
             self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+
+            # 5. Start idle nudge loop (if enabled)
+            if self._idle_nudge_enabled:
+                self._idle_nudge_task = asyncio.create_task(
+                    self._idle_nudge_loop()
+                )
+                logger.info(
+                    "[%s] Idle nudge enabled: %d–%dmin range",
+                    self._log_tag,
+                    self._idle_nudge_min_minutes,
+                    self._idle_nudge_max_minutes,
+                )
+
             self._mark_connected()
             logger.info("[%s] Connected", self._log_tag)
             return True
@@ -406,6 +474,11 @@ class QQAdapter(BasePlatformAdapter):
             except asyncio.CancelledError:
                 pass
             self._heartbeat_task = None
+
+        # Cancel idle nudge task
+        if self._idle_nudge_task:
+            self._idle_nudge_task.cancel()
+            self._idle_nudge_task = None
 
         await self._cleanup()
         self._release_platform_lock()
@@ -970,7 +1043,128 @@ class QQAdapter(BasePlatformAdapter):
         """Cache the last message ID per chat, then delegate to base."""
         if event.message_id and event.source.chat_id:
             self._last_msg_id[event.source.chat_id] = event.message_id
+        # Track user activity for idle nudge (skip internal/synthetic events)
+        chat_id = event.source.chat_id if event.source else None
+        if chat_id and not getattr(event, "internal", False):
+            self._last_user_activity[chat_id] = time.time()
+            # Reset idle nudge consecutive counter — user replied
+            self._idle_nudge_consecutive.pop(chat_id, None)
         await super().handle_message(event)
+
+    # ------------------------------------------------------------------
+    # Idle nudge: proactively reach out after conversation silence
+    # ------------------------------------------------------------------
+
+    async def _idle_nudge_loop(self) -> None:
+        """Background task that checks for idle chats and sends proactive nudges.
+
+        Runs every 30 seconds. Each chat gets a random idle threshold in
+        [min_minutes, max_minutes] range, re-randomized after each nudge.
+
+        Night quiet hours (Beijing 02:00–07:30): resets idle timers silently.
+        """
+        import random as _random
+
+        NIGHT_START = 2.0   # 02:00 Beijing
+        NIGHT_END = 7.5     # 07:30 Beijing
+        BEIJING = timezone(timedelta(hours=8))
+        CHECK_INTERVAL = 30
+
+        while self._running:
+            try:
+                await asyncio.sleep(CHECK_INTERVAL)
+            except asyncio.CancelledError:
+                return
+
+            if not self._idle_nudge_enabled:
+                continue
+
+            now = time.time()
+            min_s = self._idle_nudge_min_minutes * 60
+            max_s = self._idle_nudge_max_minutes * 60
+
+            # Night quiet hours (Beijing time) — reset all timers
+            beijing_now = datetime.now(BEIJING)
+            beijing_hour = beijing_now.hour + beijing_now.minute / 60.0
+            if NIGHT_START <= beijing_hour < NIGHT_END:
+                for chat_id in list(self._last_user_activity.keys()):
+                    self._last_user_activity[chat_id] = now
+                    self._idle_nudge_thresholds[chat_id] = _random.uniform(
+                        min_s, max_s
+                    )
+                continue
+
+            beijing_str = beijing_now.strftime("%H:%M")
+
+            for chat_id, last_activity in list(self._last_user_activity.items()):
+                # Skip chats with an active auto-continue cycle
+                if chat_id in getattr(self, '_auto_continue_timers', {}):
+                    continue
+
+                # Get or create a random threshold for this chat
+                threshold = self._idle_nudge_thresholds.get(chat_id)
+                if threshold is None:
+                    threshold = _random.uniform(min_s, max_s)
+                    self._idle_nudge_thresholds[chat_id] = threshold
+
+                idle_seconds = now - last_activity
+                if idle_seconds < threshold:
+                    continue
+
+                # Avoid repeat nudges too close together
+                last_nudge = self._idle_nudge_last_sent.get(chat_id, 0)
+                if now - last_nudge < min_s:
+                    continue
+
+                # Consecutive nudge cap — stop after N unanswered nudges
+                if self._idle_nudge_max_consecutive > 0:
+                    streak = self._idle_nudge_consecutive.get(chat_id, 0)
+                    if streak >= self._idle_nudge_max_consecutive:
+                        continue
+                    self._idle_nudge_consecutive[chat_id] = streak + 1
+
+                self._idle_nudge_last_sent[chat_id] = now
+                self._last_user_activity[chat_id] = now
+                self._idle_nudge_thresholds[chat_id] = _random.uniform(min_s, max_s)
+
+                # Map internal QQ type -> gateway chat_type for session-key matching
+                _internal_type = self._chat_type_map.get(chat_id, "dm")
+                _type_map = {"c2c": "dm", "group": "group", "guild": "group", "dm": "dm"}
+                chat_type = _type_map.get(_internal_type, "dm")
+                source = self.build_source(
+                    chat_id=chat_id,
+                    user_id=chat_id,
+                    chat_type=chat_type,
+                )
+                prompt_text = (
+                    f"{self._idle_nudge_prompt}\n"
+                    f"（当前北京时间：{beijing_str}）"
+                )
+                event = MessageEvent(
+                    source=source,
+                    text=prompt_text,
+                    message_type=MessageType.TEXT,
+                    internal=True,
+                    timestamp=datetime.now(timezone.utc),
+                )
+
+                logger.info(
+                    "[%s] Idle nudge #%d: chat=%s idle=%.0fmin beijing=%s "
+                    "(next threshold ~%.0fmin)",
+                    self._log_tag,
+                    self._idle_nudge_consecutive.get(chat_id, 0),
+                    chat_id, idle_seconds / 60,
+                    beijing_str,
+                    self._idle_nudge_thresholds[chat_id] / 60,
+                )
+
+                try:
+                    await self.handle_message(event)
+                except Exception as exc:
+                    logger.error(
+                        "[%s] Idle nudge dispatch failed for %s: %s",
+                        self._log_tag, chat_id, exc,
+                    )
 
     async def _on_message(self, event_type: str, d: Any) -> None:
         """Process an inbound QQ Bot message event."""
@@ -2497,6 +2691,11 @@ class QQAdapter(BasePlatformAdapter):
                 return SendResult(success=False, error="Not connected", retryable=True)
 
         if not content or not content.strip():
+            return SendResult(success=True)
+
+        # Silent-skip sentinel: agent can suppress delivery entirely.
+        # Used by idle nudge when the agent decides not to disturb the user.
+        if content.strip() == "__SILENT__":
             return SendResult(success=True)
 
         # Extract MEDIA:<path> tags before formatting so inline media
