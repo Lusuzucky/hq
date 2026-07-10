@@ -39,8 +39,20 @@ scripts/           ← 部署脚本
 
 ## 部署
 
+### 全量部署
+
 ```bash
 ssh root@10.10.10.1 "cd ~/hq && git pull && bash scripts/deploy.sh"
+```
+
+### 测试部署（feature 分支用）
+
+`deploy-test.sh` 通过 `git diff main...HEAD` 自动检测本分支改动的文件，
+**不需要手动编辑**。映射表在脚本内维护，覆盖全部已知路径。
+
+```bash
+bash scripts/deploy-test.sh           # 部署本分支改动
+bash scripts/deploy-test.sh --rollback # 回滚到部署前状态
 ```
 
 ## 分支保护
