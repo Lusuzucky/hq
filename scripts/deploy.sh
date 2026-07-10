@@ -58,16 +58,6 @@ while IFS= read -r -d '' f; do
     done < <(map_targets "$rel")
 done < <(find "$REPO_DIR/hermes/modified" "$REPO_DIR/plugins" -type f -not -path '*/__pycache__/*' -print0)
 
-# Config
-if [ -f "$REPO_DIR/hermes/config/config.yaml" ]; then
-    cp "$REPO_DIR/hermes/config/config.yaml" "$PROFILE_DIR/config.yaml"
-    echo "  deployed: config.yaml"
-fi
-if [ -f "$REPO_DIR/hermes/config/honcho.json" ]; then
-    cp "$REPO_DIR/hermes/config/honcho.json" "$PROFILE_DIR/honcho.json"
-    echo "  deployed: honcho.json"
-fi
-
 # Skills
 if [ -d "$REPO_DIR/hermes/skills" ] && [ "$(ls -A "$REPO_DIR/hermes/skills" 2>/dev/null)" ]; then
     cp -r "$REPO_DIR/hermes/skills/"* "$PROFILE_DIR/skills/"
