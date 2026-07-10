@@ -89,11 +89,16 @@ _final_thread_metadata = _mark_notify_metadata(
     message_category="agent" if not _is_command_response else None,
 )
 if _is_command_response:
-    _final_thread_metadata["non_conversational"] = True
+    # /retry regenerates conversational output that should
+    # be split; all other commands are system-level and
+    # should be delivered as-is without splitting.
+    if event.get_command() != "retry":
+        _final_thread_metadata["non_conversational"] = True
 ```
 
 - 普通消息：`event.get_command()` → `None` → 标记 `"agent"`，不设 `non_conversational` → 分割
-- 命令回复（`/model`、`/status`）：`event.get_command()` 返回命令名 → 设 `non_conversational: True` → 不分割
+- 命令回复（`/model`、`/status`、`/commands` 等所有命令）：`event.get_command()` 返回命令名 → 设 `non_conversational: True` → **不分割**
+  - 唯一例外：`/retry` 生成的是对话内容，不设 `non_conversational`，正常分割
 
 ### 7. send_message_tool.py — `_send_via_adapter()`
 
