@@ -2865,7 +2865,7 @@ TTS_SCHEMA = {
                 "description": "Emotion/tone for the TTS voice. GPT-SoVITS requires one of: 普通, 平淡, 开心, 撒娇, 夹子, 温柔, 低落, 委屈, 慵懒, 生气, 有气无力. Choose the emotion that best matches the message content and context. Required for GPT-SoVITS provider, ignored by other providers."
             }
         },
-        "required": ["text"]
+        "required": ["text", "emotion"]
     }
 }
 
