@@ -4,6 +4,15 @@
 #   bash scripts/deploy.sh
 set -euo pipefail
 
+# Guard: full deploy is only allowed from main.
+# Use deploy-test.sh for feature-branch deployments.
+CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+if [ "$CURRENT_BRANCH" != "main" ]; then
+    echo "ERROR: full deploy only allowed from main branch (current: $CURRENT_BRANCH)" >&2
+    echo "Use bash scripts/deploy-test.sh for feature-branch deployments." >&2
+    exit 1
+fi
+
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 HERMES_DIR="/usr/local/lib/hermes-agent"
 PROFILE_DIR="/root/.hermes/profiles/gf"
