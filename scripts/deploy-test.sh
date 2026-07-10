@@ -52,7 +52,7 @@ if [[ "${1:-}" == "--rollback" ]]; then
 
     for f in "$BACKUP_DIR"/*; do
         [ -f "$f" ] || continue
-        local bn=$(basename "$f")
+        bn=$(basename "$f")
         [ "$bn" = ".new_files" ] || [ "$bn" = ".manifest" ] && continue
         while IFS='|' read -r bname target; do
             [ "$bname" = "$bn" ] || continue
@@ -82,7 +82,7 @@ while IFS= read -r f; do
         [ -n "$target" ] || continue
         ENTRIES+=("$f|$target")
     done < <(map_targets "$f")
-done < <(git -C "$REPO_DIR" diff --name-only "main...HEAD" -- hermes/modified/ plugins/)
+done < <(git -C "$REPO_DIR" fetch origin main --quiet; git -C "$REPO_DIR" diff --name-only "origin/main...HEAD" -- hermes/modified/ plugins/)
 
 if [ ${#ENTRIES[@]} -eq 0 ]; then
     echo "No changed files detected."
