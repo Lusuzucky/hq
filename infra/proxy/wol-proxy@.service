@@ -1,0 +1,13 @@
+[Unit]
+Description=WOL-aware proxy for %i
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/wol-proxy/%i.env
+ExecStart=/usr/bin/python3 /usr/local/bin/wol-proxy.py
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
