@@ -37,8 +37,10 @@ self._coalesce_events: Dict[str, MessageEvent] = {}
 
 新消息到达时：
 - 斜杠命令 → 取消等待中的合并，立即 dispatch
-- 已有合并计时器 → 取消旧计时器，累积消息文本（`\n` 拼接），重启计时器
+- 已有合并计时器 → 取消旧计时器，累积消息文本（`\n` 拼接），合并 `media_urls` / `media_types`，更新 `message_type`，重启计时器
 - 无计时器 → 存储 event，启动计时器，到期后 dispatch
+
+**图片 + 文字合并**：先发图再发文字时，图的 `media_urls` 和 `media_types` 会追加到 pending event，`message_type` 根据合并后的 media 重新计算，确保图片不丢失。
 
 ### `_coalesce_dispatch(chat_id)`
 

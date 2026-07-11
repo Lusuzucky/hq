@@ -1135,13 +1135,21 @@ class QQAdapter(BasePlatformAdapter):
             await super().handle_message(event)
             return
 
-        # Cancel existing timer and merge text into the pending event
+        # Cancel existing timer and merge into the pending event
         if chat_id in self._coalesce_timers:
             self._coalesce_timers[chat_id].cancel()
             pending = self._coalesce_events.get(chat_id)
-            if pending is not None and event.text:
-                pending.text = (pending.text + "\n" + event.text).strip()
+            if pending is not None:
+                if event.text:
+                    pending.text = (pending.text + "\n" + event.text).strip()
+                if event.media_urls:
+                    pending.media_urls = (pending.media_urls or []) + event.media_urls
+                if event.media_types:
+                    pending.media_types = (pending.media_types or []) + event.media_types
                 pending.message_id = event.message_id
+                pending.message_type = self._detect_message_type(
+                    pending.media_urls, pending.media_types
+                )
         else:
             # New coalesce window: fire-and-forget WOL to wake the PC
             self._wake_pc()
