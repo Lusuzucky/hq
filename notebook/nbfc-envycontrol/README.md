@@ -38,17 +38,17 @@ envycontrol 只修改 rootfs 配置文件，不需要重建 initramfs。wrapper 
 
 ```bash
 # NBFC 配置
-sudo cp nbfc.json.igpu /etc/nbfc/
-sudo cp nbfc.json.nvidia /etc/nbfc/
-sudo cp nbfc-pre-start /usr/local/bin/
+sudo cp nbfc/nbfc.json.igpu /etc/nbfc/
+sudo cp nbfc/nbfc.json.nvidia /etc/nbfc/
+sudo cp nbfc/nbfc-pre-start /usr/local/bin/
 sudo chmod 755 /usr/local/bin/nbfc-pre-start
 sudo mkdir -p /etc/systemd/system/nbfc_service.service.d
-sudo cp override.conf /etc/systemd/system/nbfc_service.service.d/
+sudo cp nbfc/override.conf /etc/systemd/system/nbfc_service.service.d/
 sudo systemctl daemon-reload
 
 # mkinitcpio wrapper
 sudo mv /usr/bin/mkinitcpio /usr/bin/mkinitcpio.real
-sudo cp mkinitcpio-wrapper /usr/bin/mkinitcpio
+sudo cp mkinitcpio/wrapper /usr/bin/mkinitcpio
 sudo chmod 755 /usr/bin/mkinitcpio
 ```
 
@@ -56,11 +56,11 @@ sudo chmod 755 /usr/bin/mkinitcpio
 
 | 文件 | 用途 |
 |------|------|
-| `nbfc.json.igpu` | 集显模式配置（coretemp/acpitz/ath10k_hwmon） |
-| `nbfc.json.nvidia` | 独显模式配置（额外包含 nvidia-ml） |
-| `nbfc-pre-start` | GPU 检测脚本，systemd ExecStartPre 调用 |
-| `override.conf` | systemd service drop-in |
-| `mkinitcpio-wrapper` | 拦截 envycontrol 的 initramfs 重建 |
+| `nbfc/nbfc.json.igpu` | 集显模式配置（coretemp/acpitz/ath10k_hwmon） |
+| `nbfc/nbfc.json.nvidia` | 独显模式配置（额外包含 nvidia-ml） |
+| `nbfc/nbfc-pre-start` | GPU 检测脚本，systemd ExecStartPre 调用 |
+| `nbfc/override.conf` | systemd service drop-in |
+| `mkinitcpio/wrapper` | 拦截 envycontrol 的 initramfs 重建 |
 
 ## 注意事项
 
