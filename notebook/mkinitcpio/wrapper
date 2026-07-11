@@ -1,0 +1,13 @@
+#!/bin/bash
+
+PARENT_PID=$PPID
+while [ "$PARENT_PID" -ne 1 ] && [ "$PARENT_PID" -ne 0 ]; do
+    PARENT_CMDLINE=$(tr "\0" " " < /proc/$PARENT_PID/cmdline 2>/dev/null)
+    if echo "$PARENT_CMDLINE" | grep -qE "/envycontrol( |$)"; then
+        echo "mkinitcpio: envycontrol detected, skipping initramfs rebuild"
+        exit 0
+    fi
+    PARENT_PID=$(grep PPid /proc/$PARENT_PID/status 2>/dev/null | awk '{print $2}')
+done
+
+exec /usr/bin/mkinitcpio.real "$@"

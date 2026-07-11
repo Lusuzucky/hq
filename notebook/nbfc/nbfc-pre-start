@@ -1,0 +1,15 @@
+#!/bin/bash
+# Auto-select NBFC config based on GPU state
+
+NVIDIA_CFG=/etc/nbfc/nbfc.json.nvidia
+IGPU_CFG=/etc/nbfc/nbfc.json.igpu
+TARGET=/etc/nbfc/nbfc.json
+
+# Check if nvidia GPU is actually present on PCI bus AND usable
+if test -e /dev/nvidia0 && nvidia-smi >/dev/null 2>&1; then
+    echo "nbfc-pre-start: NVIDIA GPU available, using nvidia config"
+    ln -sf "$(basename "$NVIDIA_CFG")" "$TARGET" 2>/dev/null || cp "$NVIDIA_CFG" "$TARGET"
+else
+    echo "nbfc-pre-start: NVIDIA GPU unavailable, using iGPU config"
+    ln -sf "$(basename "$IGPU_CFG")" "$TARGET" 2>/dev/null || cp "$IGPU_CFG" "$TARGET"
+fi
