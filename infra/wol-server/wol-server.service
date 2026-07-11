@@ -1,0 +1,19 @@
+[Unit]
+Description=WOL Bridge Server - wakes home PC via router
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/wol-server.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+Environment=WOL_PORT=19999
+Environment=WOL_HEARTBEAT=60
+Environment=WOL_PUBKEY=/etc/wol.pub
+
+[Install]
+WantedBy=multi-user.target
