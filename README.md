@@ -5,34 +5,33 @@ Hermes Agent 定制 + PC 基础设施配置的集中管理仓库。
 ## 目录结构
 
 ```
-homelab/
+hq/
 ├── README.md
 │
 ├── hermes/
 │   ├── upstream/              # 干净的 Hermes 官方源码（hermes update 后拷贝）
 │   ├── modified/              # 修改后的源码（≈ 服务器 /usr/local/lib/hermes-agent/ 下跑的文件）
-│   ├── docs/                  # 每个功能一篇文档（编号+描述）
-│   └── skills/                # Agent skill 文件（部署到 ~/.hermes/profiles/gf/skills/）
+│   └── docs/                  # 每个功能一篇文档（编号+描述）
 │
 ├── plugins/                   # 自制插件（部署到 ~/.hermes/profiles/gf/plugins/）
 │   ├── pc_utils.py            # WOL 共享模块
-│   ├── comfyui/               # ComfyUI image_gen 插件
 │   └── gptsovits/             # GPT-SoVITS TTS 插件
 │
-├── infra/                     # VPS 基础设施（胶水层）
-│   ├── proxy/                 # ollama / honcho 透明代理
-│   ├── wol-server/            # WOL 监听服务
-│   └── systemd/               # systemd unit 文件
+├── claude/                    # Claude Code 配置
+│   ├── settings.json
+│   ├── hooks/                 # 自定义 hooks
+│   └── docs/                  # guardrails 等文档
 │
-├── pc-setup/                  # PC 折腾文档
-│   ├── wol.md
-│   ├── openwrt.md
-│   ├── autosuspend.md
-│   ├── build-log.md
-│   └── failures/
+├── synbox/                    # Synbox (10.10.10.5) 服务端
+│   ├── gptsovits/             # GPT-SoVITS TTS 服务
+│   └── honcho/                # Honcho 消费者 + 自动休眠
 │
-└── scripts/
-    └── deploy.sh
+├── notebook/                  # 笔记本配置归档
+│   └── nbfc-envycontrol/      # NBFC 风扇控制 + envycontrol GPU 切换
+│
+└── scripts/                   # 部署脚本
+    ├── deploy.sh
+    └── deploy-test.sh
 ```
 
 ## 工作流

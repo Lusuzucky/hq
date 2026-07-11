@@ -1,0 +1,25 @@
+{
+ "SelectedConfigId": "Acer Aspire VN7-591G V15 Nitro BE",
+ "FanTemperatureSources": [
+  {
+   "FanIndex": 0,
+   "TemperatureAlgorithmType": "Max",
+   "Sensors": [
+    "coretemp",
+    "acpitz",
+    "ath10k_hwmon",
+    "nvidia-ml"
+   ]
+  },
+  {
+   "FanIndex": 1,
+   "TemperatureAlgorithmType": "Max",
+   "Sensors": [
+    "coretemp",
+    "acpitz",
+    "ath10k_hwmon",
+    "nvidia-ml"
+   ]
+  }
+ ]
+}
