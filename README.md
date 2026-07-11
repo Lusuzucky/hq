@@ -112,7 +112,7 @@ git diff hermes/upstream/adapter.py hermes/modified/adapter.py
 | 06 | message-coalesce 消息合并 | `adapter.py` | ✅ |
 | 08 | media-extraction 媒体标签提取 | `adapter.py` | ✅ |
 | — | silent-skip 静默跳过 | — | 合并入 04 |
-| — | WOL 网络唤醒 | — | 待开发 |
+| 11 | WOL 网络唤醒 | `adapter.py`, `pc_utils.py` | ✅ |
 | — | 首条消息注入 | — | 待开发 |
 
 *Hermes update 后逐项重新登记。*

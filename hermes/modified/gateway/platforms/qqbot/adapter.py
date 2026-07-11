@@ -203,6 +203,16 @@ def _split_preserving_fences(text: str) -> list[str]:
     return result
 
 
+def _write_wol_trigger(mac: str) -> None:
+    """Write MAC address to the WOL trigger file that wol-server.py watches."""
+    WOL_TRIGGER = "/tmp/wol_trigger"
+    try:
+        with open(WOL_TRIGGER, "w") as f:
+            f.write(mac + "\n")
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # QQAdapter
 # ---------------------------------------------------------------------------
@@ -359,6 +369,11 @@ class QQAdapter(BasePlatformAdapter):
         self._idle_nudge_thresholds: Dict[str, float] = {}
         self._idle_nudge_last_sent: Dict[str, float] = {}
         self._idle_nudge_consecutive: Dict[str, int] = {}
+
+        # WOL (Wake-on-LAN) config
+        self._wol_mac = os.getenv("WOL_MAC", "").strip()
+        self._wol_pc_ip = os.getenv("PC_IP", "10.10.10.5").strip()
+        self._wol_pc_port = int(os.getenv("PC_HEALTH_PORT", "8188"))
 
         # Message coalescing: accumulate rapid successive messages
         _coalesce_raw = os.getenv("QQ_COALESCE_DELAY_SECONDS", "").strip()
@@ -1056,6 +1071,49 @@ class QQAdapter(BasePlatformAdapter):
     # Inbound message handling
     # ------------------------------------------------------------------
 
+    def _wake_pc(self) -> None:
+        """Fire-and-forget WOL trigger — write MAC to trigger file in a daemon thread."""
+        mac = self._wol_mac
+        if not mac:
+            return
+        import threading
+
+        threading.Thread(target=_write_wol_trigger, args=(mac,), daemon=True).start()
+
+    async def _wake_pc_and_wait(self, timeout: int = 90) -> bool:
+        """Wake PC then poll TCP health-check port until reachable or timeout."""
+        mac = self._wol_mac
+        if not mac:
+            return False
+        host = self._wol_pc_ip
+        port = self._wol_pc_port
+
+        _write_wol_trigger(mac)
+
+        import socket
+
+        def _wait() -> bool:
+            deadline = time.time() + timeout
+            while time.time() < deadline:
+                try:
+                    sock = socket.create_connection((host, port), timeout=3)
+                    sock.close()
+                    return True
+                except OSError:
+                    pass
+                time.sleep(3)
+            return False
+
+        ok = await asyncio.to_thread(_wait)
+        if ok:
+            logger.info("[%s] PC %s:%d is now reachable", self._log_tag, host, port)
+        else:
+            logger.warning(
+                "[%s] PC %s:%d did not come online within %ds",
+                self._log_tag, host, port, timeout,
+            )
+        return ok
+
     async def handle_message(self, event: MessageEvent) -> None:
         """Cache the last message ID, then coalesce or dispatch."""
         if event.message_id and event.source.chat_id:
@@ -1085,6 +1143,8 @@ class QQAdapter(BasePlatformAdapter):
                 pending.text = (pending.text + "\n" + event.text).strip()
                 pending.message_id = event.message_id
         else:
+            # New coalesce window: fire-and-forget WOL to wake the PC
+            self._wake_pc()
             self._coalesce_events[chat_id] = event
 
         # Start (or restart) the timer
@@ -1226,6 +1286,9 @@ class QQAdapter(BasePlatformAdapter):
                     beijing_str,
                     self._idle_nudge_thresholds[chat_id] / 60,
                 )
+
+                # Wake PC before dispatching nudge (honcho may be needed)
+                await self._wake_pc_and_wait()
 
                 try:
                     await self.handle_message(event)
