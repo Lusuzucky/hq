@@ -72,6 +72,18 @@ PASTE_ON_SELECT 模式下，选择条目后不应恢复旧剪贴板：
 
 点击/Enter/V 键调用 `#pasteItem(menuItem, true)`（保留选择），粘贴按钮仍用 `#pasteItem(menuItem)`（一次性粘贴）。
 
+### 修改 4：文本剪贴板统一使用 UTF-8 mimetype
+
+`#updateClipboard` 写系统剪贴板时，对文本条目统一用 Wayland 标准 `text/plain;charset=utf-8`，而不是保留原始捕获时的 mimetype。防止某些终端（如 Ghostty）因 `text/plain` 缺少 charset 而将 UTF-8 多字节字符显示为 hex 转义序列。
+
+```js
+#updateClipboard (entry) {
+    const mimetype = entry.isText() ? "text/plain;charset=utf-8" : entry.mimetype();
+    this.extension.clipboard.set_content(CLIPBOARD_TYPE, mimetype, entry.asBytes());
+    this.#updateIndicatorContent(entry);
+}
+```
+
 ## 部署
 
 ```bash

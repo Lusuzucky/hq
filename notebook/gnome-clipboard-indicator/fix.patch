@@ -38,3 +38,8 @@
 <         const currentlySelected = this._getCurrentlySelectedItem();
 ---
 >         const currentlySelected = keepSelection ? null : this._getCurrentlySelectedItem();
+1915c1932,1933
+<         this.extension.clipboard.set_content(CLIPBOARD_TYPE, entry.mimetype(), entry.asBytes());
+---
+>         const mimetype = entry.isText() ? "text/plain;charset=utf-8" : entry.mimetype();
+>         this.extension.clipboard.set_content(CLIPBOARD_TYPE, mimetype, entry.asBytes());
