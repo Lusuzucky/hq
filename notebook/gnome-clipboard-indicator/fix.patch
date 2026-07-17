@@ -1,0 +1,40 @@
+619c619
+<                 this.#pasteItem(menuItem);
+---
+>                 this.#pasteItem(menuItem, true);
+625a626,639
+>         // Workaround for GNOME 50: Clutter.ClickGesture on PopupBaseMenuItem
+>         // doesn't fire reliably inside St.ScrollView, so handle clicks directly.
+>         menuItem.actor.connect('button-press-event', (actor, event) => {
+>             if (event.get_button() !== Clutter.BUTTON_PRIMARY)
+>                 return Clutter.EVENT_PROPAGATE;
+>             if (PASTE_ON_SELECT) {
+>                 this.#pasteItem(menuItem, true);
+>                 this._onMenuItemSelectedAndMenuClose(menuItem, false);
+>             } else {
+>                 this._onMenuItemSelectedAndMenuClose(menuItem, true);
+>             }
+>             return Clutter.EVENT_STOP;
+>         });
+> 
+674c688
+<                         this.#pasteItem(menuItem);
+---
+>                         this.#pasteItem(menuItem, true);
+961,962d974
+<                 if (autoSet !== false)
+<                     this.#updateClipboard(menuItem.entry);
+976a989,993
+> 
+>         // Delay clipboard update until after menu close releases the popup grab.
+>         // Use _selectMenuItem (same proven path as _previousEntry/_nextEntry).
+>         if (autoSet !== false)
+>             setTimeout(() => this._selectMenuItem(menuItem), 50);
+1628c1645
+<     #pasteItem (menuItem) {
+---
+>     #pasteItem (menuItem, keepSelection = false) {
+1630c1647
+<         const currentlySelected = this._getCurrentlySelectedItem();
+---
+>         const currentlySelected = keepSelection ? null : this._getCurrentlySelectedItem();
