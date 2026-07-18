@@ -42,10 +42,6 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/block-dangerous-git.sh"
-          },
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/block-remote-edit.sh"
           }
         ]
       }
